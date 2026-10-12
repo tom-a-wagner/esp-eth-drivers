@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * SPDX-FileContributor: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2025-2026 Espressif Systems (Shanghai) CO LTD
  */
 #include <stdlib.h>
 #include "esp_eth_phy.h"
@@ -18,11 +18,14 @@
 #include "freertos/task.h"
 #include "ksz8851.h"
 
+#define KSZ8851_PHY_POST_RESET_INIT_TIME_MS 10
+
 typedef struct {
     esp_eth_phy_t parent;
     esp_eth_mediator_t *eth;
     int32_t addr;
     uint32_t reset_timeout_ms;
+    int32_t post_hw_reset_delay_ms;
     uint32_t autonego_timeout_ms;
     eth_link_t link_status;
     int reset_gpio_num;
@@ -104,6 +107,7 @@ static esp_err_t phy_ksz8851_reset_hw(esp_eth_phy_t *phy)
         gpio_output_enable(ksz8851->reset_gpio_num);
         esp_rom_delay_us(ksz8851->reset_timeout_ms * 1000);
         gpio_set_level(ksz8851->reset_gpio_num, 1);
+        esp_rom_delay_us(ksz8851->post_hw_reset_delay_ms * 1000);
     }
     return ESP_OK;
 }
@@ -118,8 +122,8 @@ static esp_err_t phy_ksz8851_pwrctl(esp_eth_phy_t *phy, bool enable)
     ESP_GOTO_ON_ERROR(eth->phy_reg_read(eth, ksz8851->addr, KSZ8851_PMECR, &pmecr), err, TAG, "PMECR read failed");
 
     pmecr &= (~PMECR_PME_MODE_MASK
-        // The following bits are Write-1-To-Clear event bits, do not write these back if set
-        | PMECR_WAKEUP_EVENT_MASK);
+              // The following bits are Write-1-To-Clear event bits, do not write these back if set
+              | PMECR_WAKEUP_EVENT_MASK);
     if (enable) {
         ESP_LOGD(TAG, "normal mode");
         pmecr |= PMECR_PME_MODE_NORMAL;
@@ -375,6 +379,10 @@ esp_eth_phy_t *esp_eth_phy_new_ksz8851snl(const eth_phy_config_t *config)
     ESP_GOTO_ON_FALSE(ksz8851, NULL, err, TAG, "no mem for PHY instance");
     ksz8851->addr                           = config->phy_addr;
     ksz8851->reset_timeout_ms               = config->reset_timeout_ms;
+    ksz8851->post_hw_reset_delay_ms         = config->post_hw_reset_delay_ms;
+    if (ksz8851->post_hw_reset_delay_ms == 0) {
+        ksz8851->post_hw_reset_delay_ms = KSZ8851_PHY_POST_RESET_INIT_TIME_MS;
+    }
     ksz8851->reset_gpio_num                 = config->reset_gpio_num;
     ksz8851->link_status                    = ETH_LINK_DOWN;
     ksz8851->autonego_timeout_ms            = config->autonego_timeout_ms;
